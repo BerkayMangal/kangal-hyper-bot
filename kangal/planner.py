@@ -129,11 +129,13 @@ def plan(cfg: Config, acct: Account, markets: Dict[str, Market],
                 else:
                     step_short -= fix
         closing = n == 0.0
+        # when both legs take the same step, they get the same number of coins, so the hedge holds exactly
+        same = round_size(abs(step_spot) / m.perp_mark, min(m.spot_sz_dec, m.perp_sz_dec)) if step_spot == step_short else None
         for leg, usd, px, dec in (("spot", step_spot, m.spot_mark, m.spot_sz_dec),
                                   ("short", step_short, m.perp_mark, m.perp_sz_dec)):
             if abs(usd) < MIN_ORDER_USD and not (closing and abs(usd) > 1.0 and leg == "short"):
                 continue
-            size = round_size(abs(usd) / px, dec)
+            size = same if same is not None else round_size(abs(usd) / px, dec)
             if size <= 0:
                 continue
             kind = {("spot", True): "spot_buy", ("spot", False): "spot_sell",

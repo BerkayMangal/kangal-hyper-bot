@@ -20,7 +20,30 @@ Sermayenin bir kısmı short'un teminatı olarak durur. Bu yüzden sermayeye dü
 3. **Canlı, 100$:** 2–4 hafta.
 4. **Büyütme:** Tavan `KANGAL_MAX_CAPITAL` ile sınırlı; kod bu tavanı aşmaz.
 
-`KANGAL_MODE=live` şu an bilerek çalışmıyor. Bot, testnet aşaması bitene kadar canlıda başlamayı reddeder.
+`KANGAL_MODE=live` şimdilik yalnızca `KANGAL_NETWORK=testnet` ile çalışır. Ana ağda canlıya geçiş testnet aşaması bitince açılacak; o zamana kadar bot başlamayı reddeder.
+
+## Testnet'i kurmak
+
+1. **Testnet hesabı:** https://app.hyperliquid-testnet.xyz adresine ana cüzdanınla bağlan ve faucet'ten test USDC al.
+2. **API wallet:** Testnet'te *More → API* altından bir API wallet oluştur. Adresini onayla, private key'ini bir kenara yaz. Bu anahtar işlem yapar ama para çekemez.
+3. **Railway:** Paper çalışmaya devam etsin diye aynı repodan ikinci bir servis aç (örn. `kangal-testnet`) ve şu değişkenleri gir:
+
+   | Değişken | Değer |
+   |---|---|
+   | `KANGAL_MODE` | `live` |
+   | `KANGAL_NETWORK` | `testnet` |
+   | `HL_ACCOUNT_ADDRESS` | ana cüzdan adresi |
+   | `HL_AGENT_KEY` | API wallet'ın private key'i |
+   | `KANGAL_PANEL_PASSWORD` | panel şifresi |
+   | `SLACK_WEBHOOK_URL` | istersen |
+
+4. **Hesap modu:** Bot ilk turda hesabı *unified* moda almayı dener. Bu modda spot USDC short'a da teminat olur; API wallet spot ile perp arasında USDC taşıyamadığı için bu mod gerekli. Alamazsa hiç emir göndermez, Slack'e ve panele "unified moda al" diye yazar.
+5. **Coin seçimi:** Testnet'te her coinin spot karşılığı olmayabilir. Panelin funding tablosunda "spot yok" yazmayan bir coin seç.
+
+**Canlıda emirler nasıl gider?**
+- Her turda botun bekleyen emirleri iptal edilir ve güncel fiyattan yeniden yazılır. Emirler post-only: alış bid'e, satış ask'e.
+- Bir bacak dolup öbürü dolmazsa bot önce yalnızca eksik bacağı pasif olarak tamamlamaya çalışır. `KANGAL_HEDGE_AFTER_S` (60 sn) içinde dolmazsa eksik bacağı taker emirle tamamlar. Böylece pozisyon bir dakikadan uzun korumasız kalmaz.
+- İki bacak her zaman aynı coin miktarıyla açılır.
 
 ## Her dakika ne oluyor?
 
@@ -68,6 +91,7 @@ Botun kendi adresinde (Railway'de *Generate Domain*) açılır. Şifre `KANGAL_P
 | `KANGAL_AVG_DAYS` | `7` | Ortalamanın kaç günlük olduğu (1–30) |
 | `KANGAL_PANEL_PASSWORD` | — | Panel şifresi; yoksa panel salt okunur |
 | `KANGAL_KILL` | `0` | `1` = her şeyi kapat, yeni pozisyon açma |
+| `KANGAL_HEDGE_AFTER_S` | `60` | (canlı) Eksik bacak kaç saniye sonra taker emirle tamamlansın |
 | `SLACK_WEBHOOK_URL` | — | Raporların gideceği yer |
 | `HL_ACCOUNT_ADDRESS` | — | (canlı) Ana cüzdan adresi |
 | `HL_AGENT_KEY` | — | (canlı) API wallet'ın anahtarı: işlem yapar, **para çekemez** |

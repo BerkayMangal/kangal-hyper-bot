@@ -5,9 +5,9 @@ the control panel that changes the settings while it runs.
 Orders are passive: post-only limit orders resting at the best bid (to
 buy) or best ask (to sell), so they never cross the spread and always pay
 the maker fee. Paper mode fills them at that touch price on a pretend
-account and collects the real hourly funding. Live mode is not wired yet:
-it comes after the testnet stage, and until then the bot refuses to start
-with KANGAL_MODE=live.
+account and collects the real hourly funding. Live mode sends them to
+Hyperliquid (kangal/live.py); for now only on the testnet, and the bot
+refuses to start live on mainnet until that stage is done.
 """
 
 from __future__ import annotations
@@ -21,11 +21,12 @@ import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from kangal.account import PaperAccount, liquidation_px
 from kangal.config import (ALLOWED_COINS, MAX_LEVERAGE, MIN_ORDER_USD, Config, editable, load_settings,
                            save_settings, with_changes)
+from kangal.live import LiveVenue, hedge_fix
 from kangal.market import HL, Market, funding_apr
 from kangal.notify import Slack
 from kangal.planner import Action, Plan, plan
@@ -40,10 +41,10 @@ LABELS = {"capital_usd": "sermaye", "coins": "coinler", "leverage": "kaldıraç"
 
 class Bot:
     def __init__(self, cfg: Config, hl: Optional[HL] = None, slack: Optional[Slack] = None,
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time, exchange: Any = None) -> None:
         cfg.check()
-        if cfg.mode == "live":
-            raise SystemExit("Live trading is not wired yet: it comes after the paper and testnet stages.")
+        if cfg.mode == "live" and cfg.network != "testnet":
+            raise SystemExit("Live trading on mainnet opens after the testnet stage; set KANGAL_NETWORK=testnet.")
         self.cfg = load_settings(cfg)
         self.lock = threading.RLock()              # the loop and the panel take turns
         self.wake = threading.Event()              # the panel sets it to run a pass right away
@@ -51,7 +52,9 @@ class Bot:
         self.hl = hl or HL(cfg.base_url)
         self.slack = slack or Slack(cfg.slack_webhook)
         self.clock = clock
-        self.paper = PaperAccount(cfg.state_path, cfg.capital_usd, clock=clock)
+        self.paper = PaperAccount(cfg.state_path, cfg.capital_usd, clock=clock) if cfg.mode == "paper" else None
+        self.live = LiveVenue(cfg, self.hl, exchange, clock) if cfg.mode == "live" else None
+        self.waiting: Optional[str] = None         # why live trading is held back, if it is
         self.history: Dict[str, list] = {}
         self.history_at = 0.0
         self.reported_at = 0.0
@@ -77,7 +80,19 @@ class Bot:
         averages = {d: {c: funding_apr(h, d, now_ms) for c, h in self.history.items()}
                     for d in sorted({7, 30, cfg.avg_days})}
         f_avg = averages[cfg.avg_days]
-        acct = self.paper.acct
+        p = self._pass_live(markets, f_avg) if self.live else self._pass_paper(markets, f_avg)
+        for al in p.alerts:
+            self._event("alert", al)
+            self.slack.send(f":rotating_light: Kangal: {al}")
+        self.last_plan = p
+        self.status = self._status(markets, averages, p)
+        if now - self.reported_at >= REPORT_EVERY:
+            self.slack.send(self.report())
+            self.reported_at = now
+        return p
+
+    def _pass_paper(self, markets: Dict[str, Market], f_avg: Dict[str, Optional[float]]) -> Plan:
+        cfg, acct = self.cfg, self.paper.acct
         for c, m in markets.items():
             got = self.paper.accrue_funding(c, self.history.get(c, []), m.perp_mark)
             if got:
@@ -88,17 +103,47 @@ class Bot:
         for a in p.actions:
             px = self._paper_fill(a, markets)
             text = a.text() + (f" @ {px:,.6g} post-only" if px else "")
-            log.info("%s %s", cfg.mode.upper(), text)
+            log.info("PAPER %s", text)
             self._event("order", text)
         self.paper.save()
-        for al in p.alerts:
-            self._event("alert", al)
-            self.slack.send(f":rotating_light: Kangal: {al}")
-        self.last_plan = p
-        self.status = self._status(markets, averages, p)
-        if now - self.reported_at >= REPORT_EVERY:
-            self.slack.send(self.report())
-            self.reported_at = now
+        return p
+
+    def _pass_live(self, markets: Dict[str, Market], f_avg: Dict[str, Optional[float]]) -> Plan:
+        cfg, lv, now = self.cfg, self.live, self.clock()
+        lv.cancel_resting(markets)
+        acct = self.acct = lv.account(markets)
+        traded = {c: m for c, m in markets.items() if c in cfg.coins or c in acct.shorts or c in acct.spot}
+        why = lv.ready(list(traded), markets)
+        if why != self.waiting:
+            self.waiting = why
+            if why:
+                self._event("alert", why)
+                self.slack.send(f":warning: Kangal {cfg.network}: {why}")
+        p = plan(cfg, acct, traded, f_avg)
+        if why:
+            p.actions = []
+            p.notes.insert(0, f"not trading: {why}")
+            return p
+        orders: List[Tuple[Action, bool]] = []
+        for coin, m in traded.items():
+            fix = hedge_fix(coin, m, acct, p.targets.get(coin, 0.0))
+            planned = [a for a in p.actions if a.coin == coin]
+            shrinking = any(coin in al and "shrinking" in al for al in p.alerts)
+            if fix is None or shrinking:
+                lv.gap_since.pop(coin, None)
+                orders += [(a, False) for a in planned]
+                continue
+            since = lv.gap_since.setdefault(coin, now)
+            taker = now - since >= cfg.hedge_after_s
+            orders.append((fix, taker))
+            p.notes.append(f"{coin}: legs differ by ${fix.usd:,.2f}, "
+                           + ("completing with a taker order" if taker else f"post-only for up to {cfg.hedge_after_s:g}s"))
+        for a, taker in orders:          # USDC transfers are not needed in unified mode and are skipped
+            st, detail = lv.place(a, markets[a.coin], taker=taker)
+            text = f"{a.text()} {'taker' if taker else 'post-only'} → {st} {detail}"
+            log.info("LIVE %s", text)
+            self._event("alert" if st == "error" else "order", text)
+        lv.save()
         return p
 
     def _touch(self, a: Action, m: Market) -> float:
@@ -180,9 +225,16 @@ class Bot:
 
     def _status(self, markets: Dict[str, Market], averages: Dict[int, Dict[str, Optional[float]]],
                 p: Plan) -> Dict[str, Any]:
-        acct, pa, cfg = self.paper.acct, self.paper, self.cfg
+        cfg = self.cfg
+        if self.paper:
+            pa = self.paper
+            acct, start, started, funding, fees, fills = pa.acct, pa.start_usdc, pa.started, pa.funding, pa.fees, pa.fills
+        else:
+            lv = self.live
+            funding, fees = lv.ledger()
+            acct, start, started, fills = self.acct, lv.start_equity or 0.0, lv.started, lv.fills
         eq = acct.equity(markets)
-        days = max((self.clock() - pa.started) / 86400, 1e-9)
+        days = max((self.clock() - started) / 86400, 1e-9)
 
         def avg(d: int, c: str) -> Optional[float]:
             v = averages.get(d, {}).get(c)
@@ -208,11 +260,12 @@ class Bot:
                 "order_style": "post-only", "settings": editable(cfg),
                 "limits": {"max_capital_usd": cfg.max_capital_usd, "max_leverage": MAX_LEVERAGE,
                            "allowed_coins": list(ALLOWED_COINS), "min_order_usd": MIN_ORDER_USD},
-                "market": market, "events": list(self.events)[::-1][:40], "fills": pa.fills[-20:][::-1],
-                "equity": round(eq, 4), "start": pa.start_usdc, "pnl": round(eq - pa.start_usdc, 4),
-                "funding_earned": round(pa.funding, 4), "fees_paid": round(pa.fees, 4),
-                "days": round(days, 2), "apr_on_capital": round((pa.funding - pa.fees) / pa.start_usdc / days * 365 * 100, 2)
-                if days >= 1 else None,
+                "market": market, "events": list(self.events)[::-1][:40], "fills": fills[-20:][::-1],
+                "waiting": self.waiting,
+                "equity": round(eq, 4), "start": start, "pnl": round(eq - start, 4),
+                "funding_earned": round(funding, 4), "fees_paid": round(fees, 4),
+                "days": round(days, 2), "apr_on_capital": round((funding - fees) / start / days * 365 * 100, 2)
+                if days >= 1 and start > 0 else None,
                 "usdc_spot": round(acct.usdc_spot, 4), "usdc_perp": round(acct.usdc_perp, 4),
                 "coins": coins, "notes": p.notes, "alerts": p.alerts,
                 "last_actions": [a.text() for a in p.actions],

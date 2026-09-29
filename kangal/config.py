@@ -13,6 +13,7 @@ Settings, all from environment variables so nothing secret lives in the code.
   KANGAL_EXIT_APR      close a coin when its average funding falls below this, % a year (default 0)
   KANGAL_AVG_DAYS      days of funding the entry and exit rules average over (default 7)
   KANGAL_KILL          1 = unwind everything and stop adding
+  KANGAL_HEDGE_AFTER_S live: seconds a leg may stay unmatched before a taker order completes it (default 60)
   KANGAL_PANEL_PASSWORD  password for the control panel; without it the panel is read-only
   HL_ACCOUNT_ADDRESS   the main wallet address (live mode)
   HL_AGENT_KEY         the API wallet's private key: can trade, cannot withdraw (live mode)
@@ -54,6 +55,7 @@ class Config:
     avg_days: int = 7
     kill: bool = False
     paused: bool = False              # hold what is open, add nothing
+    hedge_after_s: float = 60.0       # live: a leg left unmatched this long is completed with a taker order
     margin_buffer: float = 0.15       # keep 15% more margin than the short needs
     topup_distance: float = 0.35      # move USDC to the short when liquidation is closer than +35%
     reduce_distance: float = 0.20     # shrink both legs when it is closer than +20%
@@ -121,6 +123,7 @@ def from_env(env: Optional[Dict[str, str]] = None) -> Config:
         exit_apr=float(e.get("KANGAL_EXIT_APR", 0)),
         avg_days=int(e.get("KANGAL_AVG_DAYS", 7)),
         kill=e.get("KANGAL_KILL", "0") == "1",
+        hedge_after_s=float(e.get("KANGAL_HEDGE_AFTER_S", 60)),
         account_address=e.get("HL_ACCOUNT_ADDRESS") or None,
         agent_key=e.get("HL_AGENT_KEY") or None,
         slack_webhook=e.get("SLACK_WEBHOOK_URL") or None,
