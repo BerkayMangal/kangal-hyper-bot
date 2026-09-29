@@ -28,10 +28,28 @@ Sermayenin bir kısmı short'un teminatı olarak durur. Bu yüzden sermayeye dü
 2. **Plan yapar:** `kangal/planner.py` hedefi hesaplar: her coin için `sermaye × ağırlık × L / (L + 1 + 0,15)` dolar spot ve aynı miktarda short.
    - **Adım adım gider:** Her turda en fazla `KANGAL_CHUNK_USD` kadar ilerler. İki bacak birlikte büyür; biri geride kalırsa önce o tamamlanır.
    - **Teminatı yönetir:** USDC'yi spot ve perp cüzdanları arasında gerektiği kadar taşır.
-   - **Çıkar:** 30 günlük funding `KANGAL_EXIT_APR`'nin altına düşerse o coini kapatır.
+   - **Girer / çıkar:** Son `KANGAL_AVG_DAYS` günün ortalama funding'i `KANGAL_ENTRY_APR`'nin üstündeyse açar, `KANGAL_EXIT_APR`'nin altına düşerse kapatır. İkisinin arasında pozisyon olduğu gibi kalır; böylece funding bir iki gün dalgalandı diye aç-kapa yapıp ücret ödemez.
    - **Korur:** Likidasyon %35'ten yakınsa teminat ekler, %20'den yakınsa iki bacağı dörtte bir küçültür ve Slack'e acil uyarı atar.
-3. **Uygular:** Paper modda emirler mid fiyattan, maker ücretiyle dolar.
-4. **Raporlar:** Her 6 saatte Slack'e özet atar. `GET /` botun güncel durumunu JSON olarak verir.
+3. **Uygular:** Emirler **pasif**tir (post-only): alırken bid'e, satarken ask'e yazılır, spread'i hiç geçmez ve hep maker ücreti öder. Paper modda o fiyattan dolmuş sayılır. Bu biraz iyimser: gerçekte pasif emir bazen hemen dolmaz.
+4. **Raporlar:** Her 6 saatte Slack'e özet atar. Ayar değişiklikleri ve acil uyarılar da Slack'e gider.
+
+## Kontrol paneli
+
+Botun kendi adresinde (Railway'de *Generate Domain*) açılır. Şifre `KANGAL_PANEL_PASSWORD`, kullanıcı adı fark etmez. Şifre yoksa panel salt okunur.
+
+- **Butonlar:**
+  - *Duraklat:* Açık pozisyon kalır, yeni açma/kapama yapmaz. Likidasyon koruması yine çalışır.
+  - *Devam et:* Normal çalışmaya döner.
+  - *Hepsini kapat:* İki bacağı parça parça kapatır.
+  - *Şimdi kontrol et:* Bir dakikayı beklemeden bir tur çalıştırır.
+  - *Paper'ı sıfırla:* Paper hesabını yeni sermayeyle baştan başlatır.
+- **Ayarlar:** Sermaye, coinler ve ağırlıkları, kaldıraç, giriş/çıkış eşiği, ortalama penceresi ve parça büyüklüğü. Kaydedilince `state/settings.json`'a yazılır ve environment'taki değerlerin önüne geçer.
+- **Değişmeyenler:** Sermaye tavanı, 3× kaldıraç sınırı, izinli coinler (BTC, ETH, SOL, HYPE) ve mod (paper/testnet/canlı) panelden değiştirilemez. Bunlar yalnızca Railway'den değişir.
+- **API:**
+  - `GET /api/status`: Her şeyi JSON olarak verir.
+  - `POST /api/settings`: Ayar değiştirir.
+  - `POST /api/action`: `{"do": "pause" | "resume" | "close_all" | "check_now" | "reset_paper"}`.
+  - `GET /health`: Açık sağlık kontrolü.
 
 ## Ayarlar (environment variables)
 
@@ -41,11 +59,14 @@ Sermayenin bir kısmı short'un teminatı olarak durur. Bu yüzden sermayeye dü
 | `KANGAL_NETWORK` | `mainnet` | `testnet` için test ağı |
 | `KANGAL_CAPITAL_USD` | `100` | Botun kullanacağı sermaye |
 | `KANGAL_MAX_CAPITAL` | `200` | Sermayenin asla geçemeyeceği tavan |
-| `KANGAL_COINS` | `BTC:1` | Coinler ve ağırlıklar, örn. `BTC:0.5,HYPE:0.5` |
+| `KANGAL_COINS` | `BTC:1` | Coinler ve ağırlıklar, örn. `BTC:0.5,HYPE:0.5` (BTC, ETH, SOL, HYPE) |
 | `KANGAL_LEVERAGE` | `2` | Short tarafının kaldıracı (1–3) |
 | `KANGAL_CHUNK_USD` | `25` | Tek emrin en büyük hali |
 | `KANGAL_LOOP_S` | `60` | Kaç saniyede bir kontrol |
-| `KANGAL_EXIT_APR` | `0` | 30 günlük funding bunun altına düşerse coini kapat |
+| `KANGAL_ENTRY_APR` | `5` | Ortalama funding bunun üstündeyse coini aç (% yıllık) |
+| `KANGAL_EXIT_APR` | `0` | Ortalama funding bunun altına düşerse coini kapat |
+| `KANGAL_AVG_DAYS` | `7` | Ortalamanın kaç günlük olduğu (1–30) |
+| `KANGAL_PANEL_PASSWORD` | — | Panel şifresi; yoksa panel salt okunur |
 | `KANGAL_KILL` | `0` | `1` = her şeyi kapat, yeni pozisyon açma |
 | `SLACK_WEBHOOK_URL` | — | Raporların gideceği yer |
 | `HL_ACCOUNT_ADDRESS` | — | (canlı) Ana cüzdan adresi |
@@ -65,4 +86,4 @@ python -m kangal            # paper mod, BTC, 100$
 python -m pytest -q         # testler (pip install -r requirements-dev.txt)
 ```
 
-Railway'de ayrı bir servis olarak çalışır (`Procfile`). Paper durumu `state/paper.json` dosyasında tutulur; yeniden başlatmada kaybolmaması için buraya bir volume bağla.
+Railway'de ayrı bir servis olarak çalışır (`Procfile`). Paper durumu `state/paper.json`, panel ayarları `state/settings.json` dosyasında tutulur; yeniden başlatmada kaybolmaması için `/app/state`'e bir volume bağla.

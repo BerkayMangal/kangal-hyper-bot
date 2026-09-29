@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="tr"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kangal Panel</title><link rel="icon" href="data:,">
+<style>
+  :root { --bg:#0f0d1c; --panel:#1a1630; --panel2:#151229; --line:#2f2856; --text:#f2eefc; --muted:#a59ec6;
+          --faint:#6f6896; --up:#45e0a4; --hot:#f8d24a; --down:#ff6179; --blue:#5ec8f2; --acc:#6b5bd6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 "Inter","Helvetica Neue",Arial,sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-bottom:18px; }
+  h1 { margin:0; font:800 28px/1.1 "Arial Narrow",Impact,sans-serif; letter-spacing:.04em; text-transform:uppercase; }
+  h1 span { color:var(--hot); }
+  h2 { margin:0 0 12px; font:700 12px/1 monospace; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .tag { display:inline-block; border:1px solid var(--line); border-radius:6px; padding:2px 8px; font:600 12px/1.6 monospace; color:var(--muted); }
+  .tag.up { border-color:#2e6b56; color:var(--up); } .tag.hot { border-color:#6b5a1d; color:var(--hot); }
+  .tag.down { border-color:#7a2a3a; color:var(--down); }
+  .grow { flex:1; } .small { font-size:12px; color:var(--faint); }
+  .box { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin-bottom:16px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .grid2 > * { min-width:0; }
+  @media (max-width:860px) { .grid2 { grid-template-columns:1fr; } }
+  .kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+  @media (max-width:860px) { .kpis { grid-template-columns:repeat(2,1fr); } }
+  .kpi { background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .kpi .k { color:var(--faint); font:600 11px/1 monospace; text-transform:uppercase; letter-spacing:.06em; }
+  .kpi .v { font:700 20px/1.3 monospace; margin-top:4px; }
+  .btns { display:flex; flex-wrap:wrap; gap:10px; }
+  button { font:600 14px/1 inherit; font-family:inherit; border-radius:9px; padding:11px 16px; cursor:pointer;
+           border:1px solid var(--line); background:#241e45; color:var(--text); }
+  button:hover:not(:disabled) { border-color:var(--acc); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.go { background:#17392e; border-color:#2e6b56; color:var(--up); }
+  button.warn { background:#3a331a; border-color:#6b5a1d; color:var(--hot); }
+  button.stop { background:#3d1a24; border-color:#7a2a3a; color:var(--down); }
+  button.save { background:var(--acc); border-color:var(--acc); }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--faint); font:600 11px/1 monospace; text-transform:uppercase; letter-spacing:.06em;
+       padding:8px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { padding:9px 6px; border-bottom:1px solid #231e40; white-space:nowrap; }
+  td.r, th.r { text-align:right; } .num { font-family:"SF Mono",Menlo,monospace; }
+  .up { color:var(--up); } .hot { color:var(--hot); } .down { color:var(--down); } .muted { color:var(--muted); }
+  form .row { display:grid; grid-template-columns:170px 1fr; gap:10px; align-items:center; margin:9px 0; }
+  @media (max-width:520px) { form .row { grid-template-columns:1fr; gap:4px; } }
+  label { color:var(--muted); font-size:14px; }
+  input[type=number], select { width:100%; max-width:160px; background:var(--panel2); color:var(--text);
+         border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:15px monospace; }
+  input:disabled, select:disabled { opacity:.5; }
+  .coins { display:flex; flex-wrap:wrap; gap:8px; }
+  .coin { display:flex; align-items:center; gap:6px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+  .coin input[type=number] { width:64px; padding:4px 6px; }
+  .hint { color:var(--faint); font-size:12px; margin-top:2px; grid-column:2; }
+  @media (max-width:520px) { .hint { grid-column:1; } }
+  .preview { background:var(--panel2); border:1px dashed var(--line); border-radius:10px; padding:10px 12px; margin:12px 0; font-size:14px; }
+  .msg { margin-left:10px; font-size:14px; }
+  .banner { background:#3a331a; border:1px solid #6b5a1d; color:var(--hot); border-radius:10px; padding:10px 14px; margin-bottom:16px; display:none; }
+  ul.ev { list-style:none; margin:0; padding:0; max-height:340px; overflow:auto; font-size:13px; }
+  ul.ev li { padding:6px 0; border-bottom:1px solid #231e40; display:flex; gap:10px; }
+  ul.ev .t { color:var(--faint); font-family:monospace; flex:none; }
+  .legs { display:flex; height:12px; border-radius:6px; overflow:hidden; margin:6px 0 2px; background:var(--panel2); }
+</style></head>
+<body><div class="wrap">
+  <header>
+    <h1>Kangal <span>Hyper</span> Bot</h1>
+    <span id="mode" class="tag">…</span><span id="net" class="tag">…</span><span id="state" class="tag">…</span>
+    <span class="tag" title="Emirler spread'i geçmez; bid'de alır, ask'te satar, maker ücreti öder">emir: pasif · post-only</span>
+    <span class="grow"></span><span id="upd" class="small">yükleniyor…</span>
+  </header>
+
+  <div id="ro" class="banner">Panel şu an <b>salt okunur</b>. Ayar değiştirmek için Railway'de <code>KANGAL_PANEL_PASSWORD</code> değişkenini ekle.</div>
+
+  <div class="box">
+    <div class="kpis">
+      <div class="kpi"><div class="k">Sermaye</div><div class="v num" id="k-eq">–</div></div>
+      <div class="kpi"><div class="k">Kâr / zarar</div><div class="v num" id="k-pnl">–</div></div>
+      <div class="kpi"><div class="k">Funding</div><div class="v num up" id="k-fund">–</div></div>
+      <div class="kpi"><div class="k">Ücretler</div><div class="v num" id="k-fee">–</div></div>
+      <div class="kpi"><div class="k">Yıllık getiri</div><div class="v num" id="k-apr">–</div></div>
+      <div class="kpi"><div class="k">Gün</div><div class="v num" id="k-days">–</div></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>Kontrol</h2>
+    <div class="btns">
+      <button id="b-pause" class="warn" data-do="pause" title="Açık pozisyon kalır, yeni açma/kapama yapmaz">⏸ Duraklat</button>
+      <button id="b-resume" class="go" data-do="resume" title="Kurallara göre açmaya / kapatmaya devam eder">▶ Devam et</button>
+      <button id="b-close" class="stop" data-do="close_all" title="İki bacağı da parça parça kapatır">■ Hepsini kapat</button>
+      <button data-do="check_now" title="Bir dakikayı beklemeden şimdi bir tur çalıştırır">↻ Şimdi kontrol et</button>
+      <button id="b-reset" data-do="reset_paper" title="Paper hesabını yeni sermayeyle baştan başlatır">⟲ Paper'ı sıfırla</button>
+      <span id="act-msg" class="msg"></span>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>Pozisyonlar</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Coin</th><th class="r">Spot</th><th class="r">Short</th><th class="r">Hedef</th>
+        <th class="r">Funding şimdi</th><th class="r" id="h-avg">Ortalama</th><th class="r">Likidasyon</th></tr></thead>
+      <tbody id="pos"></tbody>
+    </table></div>
+    <div id="legs-wrap"></div>
+    <p id="notes" class="small" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="grid2">
+    <div class="box">
+      <h2>Ayarlar</h2>
+      <form id="f" autocomplete="off">
+        <div class="row"><label for="capital_usd">Sermaye ($)</label><input type="number" id="capital_usd" min="11" step="1">
+          <div class="hint" id="cap-hint"></div></div>
+        <div class="row"><label>Coinler ve ağırlık</label><div class="coins" id="coins"></div>
+          <div class="hint">Sermaye ağırlıklara göre bölünür.</div></div>
+        <div class="row"><label for="leverage">Kaldıraç (short)</label><input type="number" id="leverage" min="1" max="3" step="0.5">
+          <div class="hint">Yüksek kaldıraç: daha çok pozisyon, likidasyona daha yakın. En fazla 3×.</div></div>
+        <div class="row"><label for="entry_apr">Giriş (% yıllık)</label><input type="number" id="entry_apr" step="0.5">
+          <div class="hint">Ortalama funding bunun üstündeyse açar.</div></div>
+        <div class="row"><label for="exit_apr">Çıkış (% yıllık)</label><input type="number" id="exit_apr" step="0.5">
+          <div class="hint">Ortalama bunun altına düşerse kapatır. İkisinin arasında pozisyon olduğu gibi kalır.</div></div>
+        <div class="row"><label for="avg_days">Ortalama penceresi</label>
+          <select id="avg_days"><option value="3">3 gün</option><option value="7">7 gün</option><option value="14">14 gün</option><option value="30">30 gün</option></select>
+          <div class="hint">Kısa pencere hızlı tepki verir, uzun pencere daha az al-sat yapar.</div></div>
+        <div class="row"><label for="chunk_usd">Parça büyüklüğü ($)</label><input type="number" id="chunk_usd" min="11" step="1">
+          <div class="hint">Her turda en fazla bu kadar alır/satar; pozisyon yavaş yavaş kurulur.</div></div>
+        <div class="preview" id="preview"></div>
+        <button class="save" type="submit" id="save">Kaydet</button><span id="save-msg" class="msg"></span>
+      </form>
+    </div>
+
+    <div>
+      <div class="box">
+        <h2>Funding piyasası · Hyperliquid</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>Coin</th><th class="r">Şimdi</th><th class="r">7 gün</th><th class="r">30 gün</th><th>Durum</th></tr></thead>
+          <tbody id="mkt"></tbody>
+        </table></div>
+        <p class="small" style="margin:10px 0 0">% yıllık, short tarafının aldığı. Pozitif = long'lar short'lara ödüyor.</p>
+      </div>
+      <div class="box">
+        <h2>Son olaylar</h2>
+        <ul class="ev" id="ev"><li class="muted">Henüz olay yok.</li></ul>
+      </div>
+    </div>
+  </div>
+
+  <p class="small" id="limits"></p>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 2) => v == null ? "–" : Number(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = (v, d = 2) => v == null ? "–" : "$" + fmt(v, d);
+const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + fmt(v, 1) + "%";
+const cls = v => v == null ? "muted" : v > 0 ? "up" : v < 0 ? "down" : "";
+const MARGIN_BUFFER = 0.15;
+let S = null, dirty = false, writable = false;
+
+function el(tag, text, className) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (className) e.className = className; return e; }
+function td(text, className) { return el("td", text, className); }
+
+async function load() {
+  try {
+    const r = await fetch("api/status", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    S = await r.json();
+    paint();
+  } catch (e) { $("upd").textContent = "bağlantı yok (" + e.message + ")"; }
+}
+
+function paint() {
+  if (S.starting) { $("upd").textContent = "bot ilk turunu yapıyor…"; fillForm(S.settings); return; }
+  writable = !!S.panel_writable;
+  $("ro").style.display = writable ? "none" : "block";
+  $("mode").textContent = S.mode.toUpperCase(); $("mode").className = "tag " + (S.mode === "paper" ? "hot" : "down");
+  $("net").textContent = S.network;
+  const st = {running: ["ÇALIŞIYOR", "up"], paused: ["DURAKLATILDI", "hot"], closing: ["KAPATIYOR", "down"]}[S.state];
+  $("state").textContent = st[0]; $("state").className = "tag " + st[1];
+  const age = Math.round(Date.now() / 1000 - S.updated);
+  $("upd").textContent = "son tur " + (age < 90 ? age + " sn" : Math.round(age / 60) + " dk") + " önce";
+
+  $("k-eq").textContent = usd(S.equity);
+  $("k-pnl").textContent = (S.pnl >= 0 ? "+" : "") + fmt(S.pnl, 2); $("k-pnl").className = "v num " + cls(S.pnl);
+  $("k-fund").textContent = "+" + fmt(S.funding_earned, 3);
+  $("k-fee").textContent = fmt(S.fees_paid, 3);
+  $("k-apr").textContent = S.apr_on_capital == null ? "1 gün sonra" : pct(S.apr_on_capital);
+  $("k-apr").className = "v num " + (S.apr_on_capital == null ? "muted" : cls(S.apr_on_capital));
+  $("k-days").textContent = fmt(S.days, 1);
+
+  $("b-pause").disabled = !writable || S.state !== "running";
+  $("b-resume").disabled = !writable || S.state === "running";
+  $("b-close").disabled = !writable || S.state === "closing";
+  $("b-reset").style.display = S.mode === "paper" ? "" : "none";
+  document.querySelectorAll("button[data-do]").forEach(b => { if (!writable) b.disabled = true; });
+
+  const days = S.settings.avg_days;
+  $("h-avg").textContent = days + " gün ort.";
+  const pos = $("pos"); pos.replaceChildren();
+  const coins = Object.entries(S.coins);
+  if (!coins.length) { const tr = el("tr"); const c = td("Pozisyon yok.", "muted"); c.colSpan = 7; tr.append(c); pos.append(tr); }
+  for (const [c, v] of coins) {
+    const tr = el("tr");
+    const name = td(null); name.append(el("b", c)); tr.append(name);
+    tr.append(td(usd(v.spot_usd), "r num"), td(usd(v.short_usd), "r num"), td(usd(v.target_usd), "r num muted"),
+              td(pct(v.funding_now_apr), "r num " + cls(v.funding_now_apr)), td(pct(v.funding_avg_apr), "r num " + cls(v.funding_avg_apr)),
+              td(v.liq_px ? fmt(v.liq_px, 0) + " (+" + fmt(v.liq_away * 100, 0) + "%)" : "–",
+                 "r num " + (v.liq_away != null && v.liq_away < 0.35 ? "down" : "")));
+    pos.append(tr);
+  }
+  const spot = coins.reduce((a, [, v]) => a + v.spot_usd, 0), short = coins.reduce((a, [, v]) => a + v.short_usd, 0);
+  const cash = Math.max(S.usdc_spot + S.usdc_perp, 0), tot = spot + short + cash;
+  const lw = $("legs-wrap"); lw.replaceChildren();
+  if (tot > 0) {
+    const bar = el("div", null, "legs");
+    [[spot, "#45e0a4"], [short, "#ff6179"], [cash, "#5ec8f2"]].forEach(([v, col]) => {
+      const d = el("div"); d.style.width = (v / tot * 100) + "%"; d.style.background = col; bar.append(d); });
+    lw.append(bar, el("p", "■ spot " + usd(spot, 0) + "   ■ short " + usd(short, 0) + "   ■ USDC (teminat + nakit) " + usd(cash, 0), "small"));
+  }
+  $("notes").textContent = (S.notes || []).join(" · ");
+
+  const mk = $("mkt"); mk.replaceChildren();
+  for (const [c, v] of Object.entries(S.market)) {
+    const tr = el("tr");
+    const name = td(null); name.append(el("b", c)); tr.append(name);
+    tr.append(td(pct(v.funding_now_apr), "r num " + cls(v.funding_now_apr)), td(pct(v.funding_7d_apr), "r num " + cls(v.funding_7d_apr)),
+              td(pct(v.funding_30d_apr), "r num " + cls(v.funding_30d_apr)));
+    const a = v.funding_avg_apr, s = S.settings;
+    let txt = "veri bekleniyor", k = "muted";
+    if (!v.spot_pair) { txt = "spot yok"; }
+    else if (a != null) {
+      if (a >= s.entry_apr) { txt = "girişin üstünde"; k = "up"; }
+      else if (a < s.exit_apr) { txt = "çıkışın altında"; k = "down"; }
+      else { txt = "arada"; k = "hot"; }
+    }
+    tr.append(td((v.selected ? "● " : "") + txt, k));
+    mk.append(tr);
+  }
+
+  const ev = $("ev"); ev.replaceChildren();
+  if (!S.events.length) ev.append(el("li", "Henüz olay yok.", "muted"));
+  for (const e of S.events) {
+    const li = el("li");
+    li.append(el("span", new Date(e.t * 1000).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}), "t"),
+              el("span", e.text, e.kind === "alert" ? "down" : e.kind === "settings" ? "hot" : ""));
+    ev.append(li);
+  }
+
+  const L = S.limits;
+  $("limits").textContent = "Sabit sınırlar (panelden değişmez): sermaye tavanı $" + fmt(L.max_capital_usd, 0) + ", en fazla " + L.max_leverage +
+    "× kaldıraç, izinli coinler " + L.allowed_coins.join(", ") + ", en küçük emir $" + L.min_order_usd +
+    ". Mod (paper / testnet / canlı) yalnızca Railway'den değişir.";
+  $("cap-hint").textContent = "Tavan $" + fmt(L.max_capital_usd, 0) + ". Paper'da yeni sermaye 'Paper'ı sıfırla' ile başlar.";
+  if (!dirty) fillForm(S.settings);
+  document.querySelectorAll("#f input, #f select, #save").forEach(i => i.disabled = !writable);
+}
+
+function fillForm(s) {
+  if (!s) return;
+  for (const k of ["capital_usd", "leverage", "entry_apr", "exit_apr", "chunk_usd"]) $(k).value = s[k];
+  $("avg_days").value = String(s.avg_days);
+  const box = $("coins"); box.replaceChildren();
+  const allowed = S && S.limits ? S.limits.allowed_coins : Object.keys(s.coins);
+  for (const c of allowed) {
+    const w = el("label", null, "coin");
+    const cb = el("input"); cb.type = "checkbox"; cb.checked = c in s.coins; cb.dataset.coin = c;
+    const n = el("input"); n.type = "number"; n.min = "0.1"; n.step = "0.1"; n.value = s.coins[c] || 1; n.dataset.weight = c;
+    w.append(cb, el("b", c), n); box.append(w);
+  }
+  preview();
+}
+
+function formValues() {
+  const coins = {};
+  document.querySelectorAll("#coins input[type=checkbox]").forEach(cb => {
+    if (cb.checked) coins[cb.dataset.coin] = parseFloat(document.querySelector(`[data-weight="${cb.dataset.coin}"]`).value) || 1; });
+  return {capital_usd: +$("capital_usd").value, coins, leverage: +$("leverage").value, entry_apr: +$("entry_apr").value,
+          exit_apr: +$("exit_apr").value, avg_days: +$("avg_days").value, chunk_usd: +$("chunk_usd").value};
+}
+
+function preview() {
+  const v = formValues(), L = v.leverage || 1, tw = Object.values(v.coins).reduce((a, b) => a + b, 0);
+  const k = L / (L + 1 + MARGIN_BUFFER);
+  const parts = Object.entries(v.coins).map(([c, w]) => {
+    const leg = v.capital_usd * (w / tw) * k;
+    const f = S && S.market && S.market[c] ? S.market[c]["funding_30d_apr"] : null;
+    return c + ": " + usd(leg, 0) + " spot + " + usd(leg, 0) + " short" + (f != null ? " → 30 günlük funding ile yılda ~" + pct(f * k) + " sermayeye" : "");
+  });
+  $("preview").textContent = tw ? "Bu ayarla: " + parts.join(" · ") + ". Teminat + yedek: " + usd(v.capital_usd * (1 - k), 0) + "."
+                                : "En az bir coin seç.";
+}
+
+async function post(path, body, msgEl) {
+  msgEl.textContent = "…"; msgEl.className = "msg muted";
+  try {
+    const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    msgEl.textContent = "tamam ✓"; msgEl.className = "msg up";
+    setTimeout(load, 1500);
+    return true;
+  } catch (e) { msgEl.textContent = "olmadı: " + e.message; msgEl.className = "msg down"; return false; }
+}
+
+const CONFIRM = {close_all: "İki bacak da parça parça kapatılacak. Emin misin?",
+                 reset_paper: "Paper hesabı silinip yeni sermayeyle baştan başlayacak. Emin misin?"};
+document.querySelectorAll("button[data-do]").forEach(b => b.addEventListener("click", () => {
+  const d = b.dataset.do;
+  if (CONFIRM[d] && !confirm(CONFIRM[d])) return;
+  post("api/action", {do: d}, $("act-msg"));
+}));
+$("f").addEventListener("input", () => { dirty = true; preview(); });
+$("f").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  if (await post("api/settings", formValues(), $("save-msg"))) dirty = false;
+});
+
+load(); setInterval(load, 10000);
+</script>
+</body></html>

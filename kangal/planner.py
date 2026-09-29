@@ -7,7 +7,12 @@ the perpetual, so price moves cancel and the short collects funding.
   N         capital × weight × L / (L + 1 + buffer)
             (the rest of the capital is the short's margin at leverage L,
             plus a 15% buffer)
-  exit      a coin whose 30-day funding is below KANGAL_EXIT_APR is closed
+  entry     a coin not yet held opens only when its average funding
+            (last `avg_days` days) is at least `entry_apr`
+  exit      a held coin is closed when that average falls below `exit_apr`;
+            between the two levels whatever is held stays as it is
+  pause     `paused` holds what is open: no opening, no closing, only the
+            safety rule may still shrink it
   safety    liquidation closer than +35%: move spare USDC to the short;
             closer than +20%: shrink both legs by a quarter
   pace      at most `chunk_usd` per order, both legs stepping together;
@@ -50,8 +55,8 @@ class Plan:
 
 
 def plan(cfg: Config, acct: Account, markets: Dict[str, Market],
-         funding30: Optional[Dict[str, Optional[float]]] = None) -> Plan:
-    funding30 = funding30 or {}
+         funding_avg: Optional[Dict[str, Optional[float]]] = None) -> Plan:
+    funding_avg = funding_avg or {}
     out = Plan()
     L = cfg.leverage
     equity = acct.equity(markets)
@@ -65,14 +70,26 @@ def plan(cfg: Config, acct: Account, markets: Dict[str, Market],
             out.targets[coin] = 0.0
             continue
         n = budget * w * L / (L + 1 + cfg.margin_buffer)
-        f30 = funding30.get(coin)
+        f = funding_avg.get(coin)
+        s = acct.shorts.get(coin)
+        held = min((s.size if s else 0.0) * m.perp_mark, acct.spot.get(coin, 0.0) * m.spot_mark)
+        holding = max((s.size if s else 0.0) * m.perp_mark, acct.spot.get(coin, 0.0) * m.spot_mark) >= MIN_ORDER_USD
+        days = f"{cfg.avg_days}-day"
         if cfg.kill:
             n = 0.0
-        elif f30 is not None and f30 < cfg.exit_apr:
-            out.notes.append(f"{coin}: 30-day funding {f30:.1f}% a year is below {cfg.exit_apr:g}%, closing")
+        elif f is None and not holding:
+            out.notes.append(f"{coin}: waiting for {cfg.avg_days} days of funding history")
             n = 0.0
+        elif f is not None and f < cfg.exit_apr:
+            if holding:
+                out.notes.append(f"{coin}: {days} funding {f:.1f}% a year is below the exit level {cfg.exit_apr:g}%, closing")
+            n = 0.0
+        elif f is not None and not holding and f < cfg.entry_apr:
+            out.notes.append(f"{coin}: {days} funding {f:.1f}% a year, waiting for {cfg.entry_apr:g}% to open")
+            n = 0.0
+        if cfg.paused and not cfg.kill:
+            n = held                  # neither open nor close; only the safety below may shrink
         # safety: how far can the price rise before the short is liquidated?
-        s = acct.shorts.get(coin)
         if s is not None and s.liq_px:
             dist = s.liq_px / m.perp_mark - 1
             if dist < cfg.reduce_distance:
@@ -139,7 +156,7 @@ def plan(cfg: Config, acct: Account, markets: Dict[str, Market],
     spot_need = sum(a.usd * 1.001 for a in orders if a.kind == "spot_buy")
     spot_gets = sum(a.usd for a in orders if a.kind == "spot_sell")
     spot_spare = acct.usdc_spot + spot_gets - spot_need
-    if perp_have < margin_need and spot_spare > 1.0:
+    if margin_need - perp_have > 1.0 and spot_spare > 1.0:
         out.actions.append(Action("to_perp", None, round(min(margin_need - perp_have, spot_spare), 2),
                                   reason="margin for the short"))
     elif spot_spare < 0 and perp_have > margin_need + 1.0:
