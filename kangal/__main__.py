@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 from kangal.bot import Bot, serve_status
 from kangal.config import from_env
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # stdout, so Railway does not show every line as an error
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     cfg = from_env()
     bot = Bot(cfg)
     serve_status(bot, int(os.environ.get("PORT", 8080)))
