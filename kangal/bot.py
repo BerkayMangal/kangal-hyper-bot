@@ -33,6 +33,8 @@ from kangal.planner import Action, Plan, plan
 
 log = logging.getLogger("kangal")
 REPORT_EVERY = 6 * 3600
+UNWIND_AFTER = 3              # failed taker attempts at the lagging leg before the filled leg is unwound
+UNWIND_COOLDOWN_S = 1800      # after an unwind, wait this long before building the coin again
 PANEL = Path(__file__).with_name("panel.html")
 LABELS = {"capital_usd": "sermaye", "coins": "coinler", "leverage": "kaldıraç", "chunk_usd": "parça",
           "entry_apr": "giriş", "exit_apr": "çıkış", "avg_days": "ortalama günü", "paused": "duraklatıldı",
@@ -126,23 +128,45 @@ class Bot:
             return p
         orders: List[Tuple[Action, bool]] = []
         for coin, m in traded.items():
-            fix = hedge_fix(coin, m, acct, p.targets.get(coin, 0.0))
+            # a lagging leg that taker orders cannot complete (empty book, venue trouble) is not chased
+            # forever: after UNWIND_AFTER failed attempts the leg that did fill is taken back instead
+            unwind = lv.taker_fails.get(coin, 0) >= UNWIND_AFTER
+            fix = hedge_fix(coin, m, acct, p.targets.get(coin, 0.0), reduce=unwind)
             planned = [a for a in p.actions if a.coin == coin]
             shrinking = any(coin in al and "shrinking" in al for al in p.alerts)
             if fix is None or shrinking:
                 lv.gap_since.pop(coin, None)
+                lv.taker_fails.pop(coin, None)
+                if now < lv.cooldown.get(coin, 0):          # only orders that build are held back
+                    growing = [a for a in planned if a.kind in ("spot_buy", "short_add")]
+                    if growing:
+                        p.notes.append(f"{coin}: not rebuilding for {(lv.cooldown[coin] - now) / 60:.0f} min after an unwind")
+                    planned = [a for a in planned if a not in growing]
                 orders += [(a, False) for a in planned]
                 continue
             since = lv.gap_since.setdefault(coin, now)
             taker = now - since >= cfg.hedge_after_s
             orders.append((fix, taker))
             p.notes.append(f"{coin}: legs differ by ${fix.usd:,.2f}, "
-                           + ("completing with a taker order" if taker else f"post-only for up to {cfg.hedge_after_s:g}s"))
+                           + ("unwinding the filled leg" if unwind else
+                              "completing with a taker order" if taker else f"post-only for up to {cfg.hedge_after_s:g}s"))
         for a, taker in orders:          # USDC transfers are not needed in unified mode and are skipped
             st, detail = lv.place(a, markets[a.coin], taker=taker)
             text = f"{a.text()} {'taker' if taker else 'post-only'} → {st} {detail}"
             log.info("LIVE %s", text)
             self._event("alert" if st == "error" else "order", text)
+            if taker and a.reason == "hedge":
+                fails = lv.taker_fails[a.coin] = lv.taker_fails.get(a.coin, 0) + 1 if st == "error" else 0
+                if fails == UNWIND_AFTER:
+                    lv.cooldown[a.coin] = now + UNWIND_COOLDOWN_S
+                    msg = (f"{a.coin}: the lagging leg did not fill after {fails} taker attempts "
+                           f"({detail}); unwinding the leg that filled")
+                    self._event("alert", msg)
+                    self.slack.send(f":rotating_light: Kangal {cfg.network}: {msg}")
+                elif fails == 2 * UNWIND_AFTER:
+                    msg = f"{a.coin}: the unwind is not filling either ({detail}); check the position by hand"
+                    self._event("alert", msg)
+                    self.slack.send(f":rotating_light: Kangal {cfg.network}: {msg}")
         lv.save()
         return p
 
