@@ -72,6 +72,8 @@ class LiveVenue:
         self.start_equity: Optional[float] = None
         self.started = clock()
         self.gap_since: Dict[str, float] = {}
+        self.taker_fails: Dict[str, int] = {}
+        self.cooldown: Dict[str, float] = {}              # coin → time it may be built again after an unwind
         self.unified: Optional[bool] = None
         self.unified_at = 0.0
         self.leverage_set: Dict[str, int] = {}
@@ -208,15 +210,16 @@ class LiveVenue:
         return order_status(resp)
 
 
-def hedge_fix(coin: str, m: Market, acct: Account, target: float) -> Optional[Action]:
-    """The order that brings the two legs level, or None when they already are."""
+def hedge_fix(coin: str, m: Market, acct: Account, target: float, reduce: bool = False) -> Optional[Action]:
+    """The order that brings the two legs level, or None when they already are.
+    While building, the smaller leg catches up; with `reduce` the bigger leg is cut instead."""
     spot_val = acct.spot.get(coin, 0.0) * (m.spot_mark or 0.0)
     short_val = (acct.shorts[coin].size if coin in acct.shorts else 0.0) * m.perp_mark
     gap = spot_val - short_val
     tol = max(MIN_ORDER_USD, 0.03 * max(spot_val, short_val))
     if abs(gap) <= tol:
         return None
-    grow = target >= max(spot_val, short_val) - tol      # building: the smaller leg catches up
+    grow = target >= max(spot_val, short_val) - tol and not reduce   # building: the smaller leg catches up
     if gap > 0:
         kind, px, dec = ("short_add", m.perp_mark, m.perp_sz_dec) if grow else ("spot_sell", m.spot_mark, m.spot_sz_dec)
     else:

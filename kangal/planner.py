@@ -29,6 +29,8 @@ from kangal.account import Account
 from kangal.config import MIN_ORDER_USD, Config
 from kangal.market import Market, round_size
 
+MAX_TWIN_GAP = 0.02           # spot and perp count as the same price within 2%
+
 
 @dataclass
 class Action:
@@ -130,7 +132,14 @@ def plan(cfg: Config, acct: Account, markets: Dict[str, Market],
                     step_short -= fix
         closing = n == 0.0
         # when both legs take the same step, they get the same number of coins, so the hedge holds exactly
-        same = round_size(abs(step_spot) / m.perp_mark, min(m.spot_sz_dec, m.perp_sz_dec)) if step_spot == step_short else None
+        # only when spot and perp trade at the same price; on a venue where they drift apart (the testnet),
+        # equal coins would leave one leg far smaller in dollars, so each leg is sized in dollars instead
+        twins = abs(m.spot_mark / m.perp_mark - 1) <= MAX_TWIN_GAP
+        if not twins:
+            out.notes.append(f"{coin}: spot {m.spot_mark:,.4g} and perp {m.perp_mark:,.4g} differ by "
+                             f"{abs(m.spot_mark / m.perp_mark - 1):.0%}; legs matched in dollars, not coins")
+        same = (round_size(abs(step_spot) / m.perp_mark, min(m.spot_sz_dec, m.perp_sz_dec))
+                if step_spot == step_short and twins else None)
         for leg, usd, px, dec in (("spot", step_spot, m.spot_mark, m.spot_sz_dec),
                                   ("short", step_short, m.perp_mark, m.perp_sz_dec)):
             if abs(usd) < MIN_ORDER_USD and not (closing and abs(usd) > 1.0 and leg == "short"):

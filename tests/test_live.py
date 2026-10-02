@@ -144,3 +144,29 @@ def test_isolated_only_markets_fall_back_to_isolated_leverage_once(tmp_path):
     t[0] += 60
     bot.tick()
     assert calls == [True, False]                                             # cross refused, isolated set, not retried
+
+
+def test_when_taker_orders_cannot_complete_the_hedge_the_filled_leg_is_unwound(tmp_path):
+    bot, hl, ex, t = make(tmp_path)
+    hl.spot = {"balances": [{"coin": "USDC", "total": "40"}, {"coin": "UBTC", "total": "0.0006"}]}   # spot filled, short did not
+    no_fill = {"status": "ok", "response": {"data": {"statuses": [{"error": "Order could not immediately match"}]}}}
+    real_order = ex.order
+    ex.order = lambda *a, **k: (real_order(*a, **k), no_fill if a[4]["limit"]["tif"] == "Ioc" else OK_REST)[1]
+    bot.tick()                                             # post-only short
+    for _ in range(3):                                     # three failed taker shorts
+        t[0] += 61
+        bot.tick()
+    assert [o[4] for o in ex.orders[-3:]] == ["Ioc"] * 3 and all(o[0] == "BTC" for o in ex.orders[-3:])
+    assert any("unwinding" in m for m in bot.slack.sent)
+    t[0] += 61
+    bot.tick()
+    name, is_buy, sz, px, tif, _ = ex.orders[-1]
+    assert (name, is_buy, sz, tif) == ("@142", False, 0.0006, "Ioc")    # sells the spot back instead
+    hl.spot = {"balances": [{"coin": "USDC", "total": "100"}]}           # the unwind filled: flat again
+    n = len(ex.orders)
+    t[0] += 61
+    bot.tick()
+    assert len(ex.orders) == n and any("not rebuilding" in x for x in bot.status["notes"])   # cooling down
+    t[0] += 1800
+    bot.tick()
+    assert len(ex.orders) > n                                            # builds again afterwards

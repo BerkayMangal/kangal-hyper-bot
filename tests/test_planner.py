@@ -118,3 +118,13 @@ def test_coin_without_a_spot_twin_is_skipped():
     m.spot_mark = None
     p = plan(cfg, Account(usdc_spot=100), {"LINK": m})
     assert p.actions == [] and "no spot twin" in p.notes[0]
+
+
+def test_legs_are_matched_in_dollars_when_spot_and_perp_prices_drift_apart():
+    cfg = Config(capital_usd=100, chunk_usd=25, coins={"HYPE": 1})
+    m = mk("HYPE", perp=68.0, spot=19.25)                                  # the testnet: no real twin
+    p = plan(cfg, Account(usdc_spot=100), {"HYPE": m}, {"HYPE": 10.0})
+    legs = {a.kind: a for a in p.actions if a.kind in ("spot_buy", "short_add")}
+    assert legs["spot_buy"].usd > 11 and legs["short_add"].usd > 11         # both above the venue minimum
+    assert abs(legs["spot_buy"].usd - legs["short_add"].usd) < 1
+    assert any("differ by" in n for n in p.notes)
