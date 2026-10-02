@@ -123,10 +123,15 @@ class LiveVenue:
         want = max(1, math.ceil(self.cfg.leverage))
         for c in coins:
             if c in markets and self.leverage_set.get(c) != want:
-                resp = self.ex.update_leverage(min(want, markets[c].max_leverage), c, True)
-                log.info("leverage %s → %dx cross: %s", c, want, resp)
-                if isinstance(resp, dict) and resp.get("status") == "ok":
-                    self.leverage_set[c] = want
+                lev = min(want, markets[c].max_leverage)
+                resp = self.ex.update_leverage(lev, c, True)
+                margin = "cross"
+                if "cross margin is not allowed" in json.dumps(resp).lower():
+                    resp = self.ex.update_leverage(lev, c, False)      # isolated-only markets
+                    margin = "isolated"
+                log.info("leverage %s → %dx %s: %s", c, lev, margin, resp)
+                # set once per value, ok or not, so a refusal is not retried every pass
+                self.leverage_set[c] = want
         return None
 
     def _is_unified(self) -> bool:
