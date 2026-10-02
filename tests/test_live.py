@@ -130,3 +130,17 @@ def test_order_responses_are_read():
     rejected = {"status": "ok", "response": {"data": {"statuses": [{"error": "Post only order would have immediately matched"}]}}}
     assert order_status(rejected)[0] == "error"
     assert order_status({"status": "err", "response": "bad nonce"}) == ("error", "bad nonce")
+
+
+def test_isolated_only_markets_fall_back_to_isolated_leverage_once(tmp_path):
+    bot, hl, ex, t = make(tmp_path)
+    calls = []
+
+    def lev(lev, name, is_cross=True):
+        calls.append(is_cross)
+        return {"status": "err", "response": "Cross margin is not allowed for this asset."} if is_cross else {"status": "ok"}
+    ex.update_leverage = lev
+    bot.tick()
+    t[0] += 60
+    bot.tick()
+    assert calls == [True, False]                                             # cross refused, isolated set, not retried
