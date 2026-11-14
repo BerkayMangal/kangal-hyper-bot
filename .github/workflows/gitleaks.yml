@@ -1,0 +1,28 @@
+name: gitleaks
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Yeni commit'lerde sır taraması
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
+          if [ "$EVENT" = "pull_request" ]; then RANGE="$BASE..$HEAD_SHA"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE" 2>/dev/null; then RANGE="$BEFORE..$HEAD_SHA"
+          else RANGE="-1"; fi
+          echo "Taranan aralık: $RANGE"
+          ./gitleaks git --redact --no-banner --log-opts="$RANGE" .
